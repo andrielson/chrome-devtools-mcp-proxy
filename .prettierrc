@@ -1,0 +1,7 @@
+{
+  "plugins": ["prettier-plugin-sh"],
+  "indent": 2,
+  "binaryNextLine": false,
+  "switchCaseIndent": true,
+  "spaceRedirects": true
+}

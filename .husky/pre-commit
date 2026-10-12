@@ -1,0 +1,4 @@
+# Husky runs hook files through `sh` (a Bun shebang would not be honored),
+# so the implementation lives in the sibling .ts file, where Biome and tsc
+# can see it; git forwards hook arguments.
+exec bun "$(dirname -- "$0")/pre-commit.ts" "$@"

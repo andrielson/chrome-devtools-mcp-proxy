@@ -1,0 +1,5 @@
+{
+  "*.{ts,tsx,js,jsx,json,jsonc}": "biome check --write --no-errors-on-unmatched",
+  "*.{md,markdown,yml,yaml,sh,bash}": "prettier --write",
+  "**/Dockerfile": "prettier --write"
+}

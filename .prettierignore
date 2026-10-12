@@ -1,0 +1,20 @@
+# Formatter ownership contract: Biome owns the TS family (see biome.json);
+# a repo-wide Prettier run must never cross that boundary, nor touch
+# lockfiles, husky's generated shims, or file types outside Prettier's scope
+# here (markdown/yaml/shell/Dockerfile). Ignore files are excluded too:
+# prettier-plugin-sh only supports them best-effort (negation patterns can
+# be mangled).
+*.ts
+*.tsx
+*.js
+*.jsx
+*.json
+*.jsonc
+
+.claude/worktrees/
+.husky/_
+
+.dockerignore
+.gitignore
+
+bun.lock
