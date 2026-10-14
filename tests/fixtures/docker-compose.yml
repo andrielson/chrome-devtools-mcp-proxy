@@ -1,0 +1,53 @@
+# The test-only Compose fixture: the sidecar topology as a stack — Chrome,
+# the cdp-wait gate, and this repository's image under test. It is never
+# shipped as example configuration; the README's quick-start snippet is the
+# user-facing version. No Docker-global names (`name:`, `container_name:`,
+# no `image:` tag on the build): every resource lands on Compose's
+# project-scoped defaults under the per-worktree identity from
+# tests/helpers/compose-project.ts, so concurrent worktrees never collide.
+services:
+  # The network-namespace owner. Every port the stack publishes must be
+  # declared here: Compose silently discards ports on netns-sharing services,
+  # and the mcp sidecar below shares this namespace.
+  chrome:
+    image: docker.io/chromedp/headless-shell:155.0.8059.40
+    init: true # reap zombies (the image README's own recommendation)
+    shm_size: "1gb" # headless-shell BUS_ADRERR-crashes on the 64 MB default
+    ports:
+      # The proxy's HTTP surface, published ephemerally (no `published:` host
+      # port) and resolved at runtime via `docker compose port` — concurrent
+      # worktrees never collide over a fixed host port. Chrome's CDP port 9222
+      # is deliberately NOT published: CDP has no authentication, and the
+      # sidecar reaches it over the shared loopback anyway.
+      - target: 19222
+        protocol: tcp
+
+  # The cdp-wait gate: a one-shot that shares Chrome's network namespace and
+  # polls CDP until it answers, so the proxy never starts before Chrome does
+  # (service_completed_successfully below).
+  cdp-wait:
+    image: docker.io/curlimages/curl:8.10.1
+    network_mode: "service:chrome"
+    entrypoint:
+      # POSIX sh has no long options — `-c` runs the inline script below.
+      - /bin/sh
+      - -c
+    command:
+      - until curl --fail --silent http://localhost:9222/json/version >/dev/null; do sleep 1; done
+    depends_on:
+      chrome:
+        condition: service_started
+
+  # This repository's image under test, sharing Chrome's network namespace —
+  # the sidecar topology, with the image ENV defaults already pointing at
+  # http://localhost:9222.
+  mcp:
+    build:
+      context: ../../src
+      dockerfile: Dockerfile
+    network_mode: "service:chrome"
+    depends_on:
+      chrome:
+        condition: service_started
+      cdp-wait:
+        condition: service_completed_successfully

@@ -1,0 +1,4 @@
+# The per-worktree Compose project identity record (tests/helpers/compose-project.ts)
+# is generated, never committed. Examples are tracked, real files are not.
+.env*
+!.env*.example
