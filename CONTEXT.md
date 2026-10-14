@@ -24,6 +24,10 @@ _Avoid_: example compose, demo stack
 The one-shot fixture service whose successful exit makes the proxy's startup conditional on Chrome answering `/json/version`.
 _Avoid_: readiness service, healthcheck sidecar
 
+**Publication record**:
+The git tag `v{version}` whose presence means that image version was successfully published; its absence means a publish is still due.
+_Avoid_: release tag, version tag
+
 ### Topologies
 
 The ways a user places the image next to their Chrome. Only the sidecar topology is tested.
