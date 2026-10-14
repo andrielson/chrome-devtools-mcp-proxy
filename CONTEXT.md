@@ -13,7 +13,7 @@ Tests of the image's contract and wiring — entrypoint, environment defaults, f
 _Avoid_: integration suite, docker tests
 
 **E2E smoke**:
-The single test that drives one MCP session through the whole chain — client, mcp-proxy, chrome-devtools-mcp, Chrome — against the real developers.chrome.com page.
+The single test file that drives one MCP session through the whole chain — client, mcp-proxy, chrome-devtools-mcp, Chrome — against the real developers.chrome.com page.
 _Avoid_: e2e tests, browser tests
 
 **Fixture**:
