@@ -7,7 +7,6 @@ ENV PATH="/root/.local/bin/:$PATH" \
   UV_COMPILE_BYTECODE=1 \
   UV_MALWARE_CHECK=1 \
   UV_MANAGED_PYTHON=1 \
-  UV_PREVIEW_FEATURES="python-install-default" \
   UV_PYTHON="3.15" \
   UV_TORCH_BACKEND="cpu"
 
