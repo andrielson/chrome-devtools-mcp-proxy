@@ -1,13 +1,25 @@
-# bun-devops-template
+# chrome-devtools-mcp-proxy
 
-A GitHub template for Bun-based DevOps projects: the quality tooling, git
-hooks and agent tooling are prewired — bring your own code. There is no
-entry point (`index.ts` was intentionally removed); start from whatever the
-derived project needs.
+A Docker image — `src/Dockerfile` — that exposes
+[chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp)
+(a stdio MCP server) over HTTP via
+[mcp-proxy](https://github.com/sparfenyuk/mcp-proxy), always connecting to
+an external Chrome over CDP. The image is transport glue, not a browser
+host: it contains no Chrome of its own.
 
-Generated with `bun init` (Bun v1.4.2); the tooling set is distilled from
-[rtx-workspace](https://github.com/andrielson/rtx-workspace), the first
-project built on it.
+Every upstream artifact is pinned to an exact version as a Dockerfile `ARG`
+and surfaced as an `io.github.andrielson.chrome-devtools-mcp-proxy.*` OCI
+label (`docker inspect` audits them). Two environment variables configure
+the final command at run time — `MCP_PROXY_ARGS` (default
+`--host=0.0.0.0 --port=19222`) and `CHROME_DEVTOOLS_MCP_ARGS` (default
+`--browser-url=http://localhost:9222`) — parsed with shell-like quoting by
+the POSIX entrypoint (`src/docker-entrypoint.sh`), which logs the assembled
+command as one line and `exec`s mcp-proxy as PID 1. Note that the startup
+log puts argument values into `docker logs`.
+
+The repository tooling is built on the `bun init` template distilled from
+[rtx-workspace](https://github.com/andrielson/rtx-workspace): the quality
+tooling, git hooks and agent tooling are prewired.
 
 ## Prerequisites
 
@@ -15,8 +27,8 @@ project built on it.
 - **ShellCheck** (0.10+) — shell linting (`lint:sh` and the pre-commit
   gate). Shell _formatting_ needs no host binary: it goes through Prettier
   and `prettier-plugin-sh`.
-- **Docker** — optional; only for derived projects that validate Compose
-  files or build images.
+- **Docker** — for building and running the image; the test suite runs
+  without it (`bun test` exercises the entrypoint under plain `sh`).
 
 ## Getting started
 
@@ -33,17 +45,17 @@ setup.
 
 ## Commands
 
-| Command                | What it does                                                                           |
-| ---------------------- | -------------------------------------------------------------------------------------- |
-| `bun install`          | Install dependencies (and activate the git hooks)                                      |
-| `bun run lint`         | Biome check (TS family)                                                                |
-| `bun run lint:fix`     | Biome check with auto-fix                                                              |
-| `bun run lint:sh`      | ShellCheck over the tracked shell scripts                                              |
-| `bun run format`       | Prettier write (markdown/YAML/shell/Dockerfile)                                        |
-| `bun run format:check` | Prettier check, no changes applied                                                     |
-| `bun run typecheck`    | `tsc --noEmit`                                                                         |
-| `bun test`             | Run the test suite ([Bun's test runner](https://bun.com/docs/test-writer) is built in) |
-| `bun build <entry>`    | Bundle an entrypoint (`.ts`, `.html`, `.css`)                                          |
+| Command                | What it does                                                                                                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `bun install`          | Install dependencies (and activate the git hooks)                                                                                                                  |
+| `bun run lint`         | Biome check (TS family)                                                                                                                                            |
+| `bun run lint:fix`     | Biome check with auto-fix                                                                                                                                          |
+| `bun run lint:sh`      | ShellCheck over the tracked shell scripts                                                                                                                          |
+| `bun run format`       | Prettier write (markdown/YAML/shell/Dockerfile)                                                                                                                    |
+| `bun run format:check` | Prettier check, no changes applied                                                                                                                                 |
+| `bun run typecheck`    | `tsc --noEmit`                                                                                                                                                     |
+| `bun test`             | Run the test suite ([Bun's test runner](https://bun.com/docs/test-writer) is built in) — currently the entrypoint unit tests under `tests/unit/`, no Docker needed |
+| `bun build <entry>`    | Bundle an entrypoint (`.ts`, `.html`, `.css`)                                                                                                                      |
 
 ## Lint, formatting and type checking
 
@@ -59,8 +71,9 @@ touch the same file:
 
 `.shellcheckrc` holds the ShellCheck policy (bash dialect, optional rules
 enabled, known-noise codes disabled). `lint:sh` targets every tracked
-shell script (`git ls-files`), so it respects `.gitignore` and stays a
-no-op until the project adds scripts.
+shell script (`git ls-files`), currently the image entrypoint
+(`src/docker-entrypoint.sh`), whose POSIX-sh constructs carry inline,
+documented `# shellcheck disable=` comments.
 
 ## Git hooks (Husky)
 
