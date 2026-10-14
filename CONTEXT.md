@@ -25,8 +25,12 @@ The one-shot fixture service whose successful exit makes the proxy's startup con
 _Avoid_: readiness service, healthcheck sidecar
 
 **Publication record**:
-The git tag `v{version}` whose presence means that image version was successfully published; its absence means a publish is still due.
+The git tag `v{version}`, pushed by semantic-release only after the image push has succeeded; its presence means that image version was published. The source of truth for what gets released is the conventional-commit history.
 _Avoid_: release tag, version tag
+
+**Seed tag**:
+A manually created tag anchoring the version series before the first automated release (here `v0.1.0` on `1dbad81`); without it the first release would be 1.0.0.
+_Avoid_: initial tag, baseline tag
 
 ### Topologies
 
