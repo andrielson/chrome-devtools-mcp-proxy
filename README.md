@@ -76,7 +76,8 @@ touch the same file:
 `.shellcheckrc` holds the ShellCheck policy (bash dialect, optional rules
 enabled, known-noise codes disabled). `lint:sh` targets every tracked
 shell script (`git ls-files`), currently the image entrypoint
-(`src/docker-entrypoint.sh`), whose POSIX-sh constructs carry inline,
+(`src/docker-entrypoint.sh`) and the release build script
+(`scripts/release-image.sh`), whose POSIX-sh constructs carry inline,
 documented `# shellcheck disable=` comments.
 
 ## Git hooks (Husky)
@@ -104,7 +105,7 @@ extension for markdown, YAML, shell and Dockerfile.
 
 ## Continuous integration
 
-One workflow — `.github/workflows/ci.yml` — with three jobs:
+One workflow — `.github/workflows/ci.yml` — with four jobs:
 
 - **Changed paths** — diffs the event's range into boolean gates consumed by
   the other jobs' `if:` conditions. There is deliberately no workflow-level
@@ -114,9 +115,13 @@ One workflow — `.github/workflows/ci.yml` — with three jobs:
   `bun install --frozen-lockfile`, ShellCheck v0.10 (upstream tarball — apt
   ships an older minor), then `lint`, `format:check`, `typecheck`,
   `lint:sh` and `lint:compose`. Runs whenever the diff touches `src`,
-  `tests`, the workflow, `package.json`, `bun.lock` or the repo-config
-  group (Husky hooks, Biome, tsconfig, Prettier, ShellCheck, lint-staged) —
-  a config-only PR must not skip typecheck.
+  `tests`, the workflow, `package.json`, `bun.lock`, the repo-config
+  group (Husky hooks, Biome, tsconfig, Prettier, ShellCheck, lint-staged)
+  or the release tooling (`release.config.js`, `commitlint.config.js`,
+  the image build script) — a config-only PR must not skip typecheck.
+  On pull requests it also runs
+  commitlint over the PR title: squash merges make the title the commit,
+  and non-conventional commits would silently release nothing.
 - **Test suite** — plain GitHub-hosted `ubuntu-latest` runners; bare
   `bun test` (the suites build the image themselves through the fixture —
   CI has no separate build step). Draft PRs skip it and
@@ -125,6 +130,20 @@ One workflow — `.github/workflows/ci.yml` — with three jobs:
   from the published image first, and a failed suite gets exactly one
   full-suite retry — the e2e smoke loads a real site, so a vendor hiccup
   deserves a second chance that a real regression will not survive.
+- **Release** — merges to `main` (and manual dispatches) whose diff touched
+  the release gate (`src`, the workflow, `release.config.js`,
+  `scripts/release-image.sh`) run [semantic-release] with zero project
+  dependencies (pinned `npx --package` on the runner's Node): conventional
+  commits decide the next version, `scripts/release-image.sh` builds and
+  pushes `ghcr.io/andrielson/chrome-devtools-mcp-proxy:vX.Y.Z` + `latest`
+  to GHCR, and semantic-release then pushes the git tag and opens the
+  GitHub release. The tag lands only after the image push succeeded, so it
+  stays the publication record — present means that version was published.
+  Versions are never bumped by hand and there is no `CHANGELOG.md`; release
+  notes live in GitHub Releases. The first push creates the GHCR package as
+  private — flip it to public once, manually.
+
+[semantic-release]: https://github.com/semantic-release/semantic-release
 
 ## Agent tooling
 
