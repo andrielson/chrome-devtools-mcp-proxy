@@ -4,15 +4,16 @@ This file provides guidance to AGENTS when working with code in this repository.
 
 ## Repository state
 
-This is a GitHub template for Bun-based DevOps projects (created with `bun init`, Bun v1.4.2). There is no entry point — `index.ts` was intentionally removed; bring your own code. The quality tooling is prewired: Biome and Prettier with strict ownership, ShellCheck, `tsc`, Husky hooks (activated by `bun install`), and the agent tooling described below. The `.husky/*.ts` hooks count as TypeScript inputs, so `bun run typecheck` passes even before any source file exists.
+This repository builds one deliverable: the `ghcr.io/andrielson/chrome-devtools-mcp-proxy` Docker image — `src/Dockerfile` (upstream versions pinned as `ARG`s, surfaced as OCI labels) plus the POSIX `src/docker-entrypoint.sh` that turns `MCP_PROXY_ARGS` / `CHROME_DEVTOOLS_MCP_ARGS` into the final `mcp-proxy … -- chrome-devtools-mcp …` command. There is no `index.ts` and nothing runs on Bun in production — Bun is the tooling and test runtime. Three nested suites live under `tests/`: unit (no Docker), the container suite and the E2E smoke (Docker + Compose through the sidecar fixture in `tests/fixtures/`, skipping with a visible notice when Docker or outbound internet is absent). CI (`.github/workflows/ci.yml`) runs the hygiene gates and the suites on pull requests; on merges to `main` whose diff touches the image inputs, semantic-release publishes the GHCR image and the git tag (the publication record) from conventional commits — versions are never bumped by hand. The quality tooling is prewired: Biome and Prettier with strict ownership, ShellCheck, `tsc`, Husky hooks (activated by `bun install`), and the agent tooling described below.
 
 ## Commands
 
 - `bun install` — install dependencies (also activates the git hooks, via the `prepare` script)
 - `bun run <file>` — run a script directly
-- `bun test` — run all tests; `bun test path/to/file.test.ts` for one file, `bun test -t "<name>"` for one test
+- `bun test` — run all tests (the Docker-dependent container suite and E2E smoke skip with a visible notice without Docker); `bun test path/to/file.test.ts` for one file, `bun test -t "<name>"` for one test
 - `bun run lint` / `bun run lint:fix` — Biome check (TS family), with and without auto-fix
 - `bun run lint:sh` — ShellCheck over the tracked shell scripts
+- `bun run lint:compose` — validate the fixture Compose file (`docker compose config --quiet`, client-side)
 - `bun run format` / `bun run format:check` — Prettier write/check (markdown, YAML, shell, Dockerfile)
 - `bun run typecheck` — `tsc --noEmit`
 - `bun build <entry.ts|entry.html|entry.css>` — bundle

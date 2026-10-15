@@ -10,6 +10,7 @@ services:
   # declared here: Compose silently discards ports on netns-sharing services,
   # and the mcp sidecar below shares this namespace.
   chrome:
+    # The README quick-start snippet pins the same tag — bump both together.
     image: docker.io/chromedp/headless-shell:155.0.8059.40
     init: true # reap zombies (the image README's own recommendation)
     shm_size: "1gb" # headless-shell BUS_ADRERR-crashes on the 64 MB default
