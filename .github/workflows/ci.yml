@@ -1,0 +1,176 @@
+# One workflow, three jobs (a fourth — release — arrives with its own ticket).
+#
+# No workflow-level `paths` filter: branch protection requires the Hygiene and
+# Test suite checks on every pull request, and a workflow skipped by path
+# filtering never reports them, leaving the PR unmergeable — a config-only PR
+# could skip a needed check. Jobs skip through `if:` conditions instead: a
+# skipped job still reports, so nothing required goes unreported.
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Fork pull requests run with a read-only token and no secrets; the future
+# publish path is push-to-main only, which a fork can never produce. This
+# workflow must never use pull_request_target (base-repo permissions over
+# fork code). Third-party actions are pinned by commit SHA, never by a moving
+# tag.
+permissions:
+  contents: read
+
+# Per-ref: one group per pull request (superseded runs cancel), one per
+# branch or tag elsewhere.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      # `hygiene` gates the Hygiene job, `tests` the Test suite job. The
+      # tests gate paths are a subset of hygiene's, so a run with the tests
+      # gate true always has the hygiene gate true too.
+      hygiene: ${{ steps.filter.outputs.hygiene }}
+      tests: ${{ steps.filter.outputs.tests }}
+    steps:
+      - name: Check out the repository (full history, for the range diff)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # workflow_dispatch runs everything (the manual self-heal path); a pull
+      # request diffs its own range; a push diffs the event's own
+      # before...after range, so a push carrying several commits at once
+      # (racing merges) cannot hide an older commit's paths. The zero-SHA
+      # fallback covers the one push that has no before (branch creation;
+      # normal pushes to main are squash merges, direct pushes are blocked by
+      # branch protection).
+      - name: Decide which jobs the changed paths concern
+        id: filter
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == 'workflow_dispatch' ]]; then
+            echo 'hygiene=true' >> "${GITHUB_OUTPUT}"
+            echo 'tests=true' >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          if [[ "${GITHUB_EVENT_NAME}" == 'pull_request' ]]; then
+            range="${BASE_SHA}...${HEAD_SHA}"
+          elif [[ "${BEFORE_SHA}" =~ ^0+$ ]]; then
+            range='HEAD~1...HEAD'
+          else
+            range="${BEFORE_SHA}...${GITHUB_SHA}"
+          fi
+          # The tests gate is what the suites build and run against. The
+          # hygiene gate adds the repo-config group: the Husky hooks are
+          # TypeScript inputs and every tool config shapes the gates
+          # themselves, so a config-only pull request must not skip
+          # typecheck.
+          code_paths=$(git diff --name-only "${range}" -- src tests .github/workflows/ci.yml package.json bun.lock)
+          config_paths=$(git diff --name-only "${range}" -- .husky biome.json tsconfig.json .prettierrc .prettierignore .shellcheckrc .lintstagedrc.json)
+          if [[ -n "${code_paths}" || -n "${config_paths}" ]]; then
+            echo 'hygiene=true' >> "${GITHUB_OUTPUT}"
+          else
+            echo 'hygiene=false' >> "${GITHUB_OUTPUT}"
+          fi
+          if [[ -n "${code_paths}" ]]; then
+            echo 'tests=true' >> "${GITHUB_OUTPUT}"
+          else
+            echo 'tests=false' >> "${GITHUB_OUTPUT}"
+          fi
+
+  hygiene:
+    name: Hygiene
+    needs: changes
+    # Skipped — which still reports, so a required check stays satisfied —
+    # when the diff touches none of the gate paths above: documentation-only
+    # and repository-machinery changes validate locally through pre-commit.
+    if: needs.changes.outputs.hygiene == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Bun (reads the version from packageManager)
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      # apt ships an older minor than the 0.10+ the README requires
+      - name: Install ShellCheck
+        run: |
+          shellcheck_version='v0.10.0'
+          curl --fail --silent --show-error --location \
+            --output "/tmp/shellcheck-${shellcheck_version}.tar.xz" \
+            "https://github.com/koalaman/shellcheck/releases/download/${shellcheck_version}/shellcheck-${shellcheck_version}.linux.x86_64.tar.xz"
+          tar --extract --xz --file "/tmp/shellcheck-${shellcheck_version}.tar.xz" --directory /tmp
+          install --directory "$HOME/.local/bin"
+          install --mode=0755 "/tmp/shellcheck-${shellcheck_version}/shellcheck" "$HOME/.local/bin/shellcheck"
+      - name: Biome
+        run: bun run lint
+      - name: Prettier
+        run: bun run format:check
+      - name: Type check
+        run: bun run typecheck
+      - name: ShellCheck
+        run: bun run lint:sh
+      - name: Compose schema
+        run: bun run lint:compose
+
+  test-suite:
+    name: Test suite
+    needs: [changes, hygiene]
+    # Draft PRs run hygiene only; the suite joins when the PR is marked ready
+    # for review (ready_for_review re-triggers this workflow). Merges to main
+    # skip the suite — the PR-only flow is enforced by branch protection —
+    # leaving manual dispatch as the self-heal path. Skipped together with
+    # hygiene when the diff matches no gate path.
+    if: needs.changes.outputs.tests == 'true' && ((github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    # Above the two 12-min suite attempts plus cache warm-up: the one retry
+    # must get its full budget, not die on the job's own ceiling.
+    timeout-minutes: 35
+    env:
+      # One definition for the pull and the cache-from below, so the two
+      # references cannot drift apart when the registry path changes.
+      CACHE_SOURCE: ghcr.io/andrielson/chrome-devtools-mcp-proxy:latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Bun (reads the version from packageManager)
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      # Missing before the first release exists (cold bootstrap) and while
+      # the package is still private — both fall through to a cold build.
+      - name: Pull the latest release (cache source)
+        id: pull-latest
+        continue-on-error: true
+        run: docker pull "${CACHE_SOURCE}"
+      # Warms the daemon-side BuildKit cache so the suite's compose build
+      # resolves as cache hits; the release image will carry inline cache
+      # metadata precisely for this docker-build cache-from path.
+      - name: Warm the daemon build cache from the release image
+        if: steps.pull-latest.outcome == 'success'
+        run: docker build --cache-from "${CACHE_SOURCE}" --tag chrome-devtools-mcp-proxy:latest src
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Run the suite
+        id: suite
+        continue-on-error: true
+        timeout-minutes: 12
+        run: bun test
+      # One full-suite retry: the e2e smoke loads a real site, so a vendor
+      # hiccup gets a second chance, while a real regression fails
+      # deterministically twice.
+      - name: Retry the suite once
+        if: steps.suite.outcome == 'failure'
+        timeout-minutes: 12
+        run: bun test

@@ -102,6 +102,30 @@ VS Code is preconfigured (`.vscode/`, `.editorconfig`) to format on save
 with the same tools as the hooks: Biome for the TS family, the Prettier
 extension for markdown, YAML, shell and Dockerfile.
 
+## Continuous integration
+
+One workflow — `.github/workflows/ci.yml` — with three jobs:
+
+- **Changed paths** — diffs the event's range into boolean gates consumed by
+  the other jobs' `if:` conditions. There is deliberately no workflow-level
+  `paths` filter: a path-skipped workflow never reports its checks, and
+  branch protection requires them; a job skipped by `if:` still reports.
+- **Hygiene** — Bun (version from `packageManager`),
+  `bun install --frozen-lockfile`, ShellCheck v0.10 (upstream tarball — apt
+  ships an older minor), then `lint`, `format:check`, `typecheck`,
+  `lint:sh` and `lint:compose`. Runs whenever the diff touches `src`,
+  `tests`, the workflow, `package.json`, `bun.lock` or the repo-config
+  group (Husky hooks, Biome, tsconfig, Prettier, ShellCheck, lint-staged) —
+  a config-only PR must not skip typecheck.
+- **Test suite** — plain GitHub-hosted `ubuntu-latest` runners; bare
+  `bun test` (the suites build the image themselves through the fixture —
+  CI has no separate build step). Draft PRs skip it and
+  `ready_for_review` re-triggers it; merges to `main` skip it (the PR-only
+  flow is enforced by branch protection). The daemon build cache is warmed
+  from the published image first, and a failed suite gets exactly one
+  full-suite retry — the e2e smoke loads a real site, so a vendor hiccup
+  deserves a second chance that a real regression will not survive.
+
 ## Agent tooling
 
 The template ships coding-agent tooling alongside the code:
