@@ -28,8 +28,10 @@ tooling, git hooks and agent tooling are prewired.
   gate). Shell _formatting_ needs no host binary: it goes through Prettier
   and `prettier-plugin-sh`.
 - **Docker** — for building and running the image. `bun test` stays green
-  without it: the container suite (and later the e2e smoke) skips with a
-  visible notice, and the unit suites never need it.
+  without it: the container suite and the e2e smoke skip with a visible
+  notice, and the unit suites never need it. The e2e smoke additionally needs
+  outbound internet (it loads the real developers.chrome.com page through the
+  whole chain) and skips just as visibly without it.
 
 ## Getting started
 
@@ -46,18 +48,18 @@ setup.
 
 ## Commands
 
-| Command                | What it does                                                                                                                                                                                                         |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun install`          | Install dependencies (and activate the git hooks)                                                                                                                                                                    |
-| `bun run lint`         | Biome check (TS family)                                                                                                                                                                                              |
-| `bun run lint:fix`     | Biome check with auto-fix                                                                                                                                                                                            |
-| `bun run lint:sh`      | ShellCheck over the tracked shell scripts                                                                                                                                                                            |
-| `bun run lint:compose` | Validate the fixture Compose file (`docker compose config --quiet` — client-side, no daemon)                                                                                                                         |
-| `bun run format`       | Prettier write (markdown/YAML/shell/Dockerfile)                                                                                                                                                                      |
-| `bun run format:check` | Prettier check, no changes applied                                                                                                                                                                                   |
-| `bun run typecheck`    | `tsc --noEmit`                                                                                                                                                                                                       |
-| `bun test`             | Run the test suite ([Bun's test runner](https://bun.com/docs/test-writer) is built in) — unit suites (no Docker) plus the container suite (`tests/container/`, Docker + Compose, skips with a notice without Docker) |
-| `bun build <entry>`    | Bundle an entrypoint (`.ts`, `.html`, `.css`)                                                                                                                                                                        |
+| Command                | What it does                                                                                                                                                                                                                                                                                                                                                                                       |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun install`          | Install dependencies (and activate the git hooks)                                                                                                                                                                                                                                                                                                                                                  |
+| `bun run lint`         | Biome check (TS family)                                                                                                                                                                                                                                                                                                                                                                            |
+| `bun run lint:fix`     | Biome check with auto-fix                                                                                                                                                                                                                                                                                                                                                                          |
+| `bun run lint:sh`      | ShellCheck over the tracked shell scripts                                                                                                                                                                                                                                                                                                                                                          |
+| `bun run lint:compose` | Validate the fixture Compose file (`docker compose config --quiet` — client-side, no daemon)                                                                                                                                                                                                                                                                                                       |
+| `bun run format`       | Prettier write (markdown/YAML/shell/Dockerfile)                                                                                                                                                                                                                                                                                                                                                    |
+| `bun run format:check` | Prettier check, no changes applied                                                                                                                                                                                                                                                                                                                                                                 |
+| `bun run typecheck`    | `tsc --noEmit`                                                                                                                                                                                                                                                                                                                                                                                     |
+| `bun test`             | Run the test suite ([Bun's test runner](https://bun.com/docs/test-writer) is built in) — unit suites (no Docker), the container suite (`tests/container/`, Docker + Compose) and the e2e smoke (`tests/e2e/`, Docker + outbound internet: one real MCP session through client → mcp-proxy → chrome-devtools-mcp → Chrome). The Docker-dependent suites skip with a visible notice rather than fail |
+| `bun build <entry>`    | Bundle an entrypoint (`.ts`, `.html`, `.css`)                                                                                                                                                                                                                                                                                                                                                      |
 
 ## Lint, formatting and type checking
 

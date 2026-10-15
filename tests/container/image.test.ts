@@ -14,6 +14,7 @@ import { $ } from 'bun'
 
 import { resolveComposeProject } from '../helpers/compose-project'
 import { isDockerAvailable } from '../helpers/docker-availability'
+import { pollUntil } from '../helpers/poll-until'
 
 const project = resolveComposeProject('tests/.env')
 const compose = ['docker', 'compose', '--file', 'tests/fixtures/docker-compose.yml', '--project-name', project]
@@ -57,23 +58,6 @@ describe.skipIf(!isDockerAvailable())('the built image', () => {
     $`docker inspect --format ${format} ${ref}`.quiet().text()
 
   const imageIdOf = async (): Promise<string> => (await inspect(imageRefFormat, await mcpContainerIdOf())).trim()
-
-  // Poll `probe` every `interval` ms until it returns a value or `timeout` ms
-  // pass, then throw `timeoutError()` — callers capture docker logs there.
-  const pollUntil = async <T>(
-    probe: () => Promise<T | undefined>,
-    timeout: number,
-    interval: number,
-    timeoutError: () => Promise<Error>,
-  ): Promise<T> => {
-    const deadline = Date.now() + timeout
-    for (;;) {
-      const found = await probe()
-      if (found !== undefined) return found
-      if (Date.now() >= deadline) throw await timeoutError()
-      await Bun.sleep(interval)
-    }
-  }
 
   test('docker inspect certifies the ENTRYPOINT, ENV defaults and pinned-version labels', async () => {
     const imageId = await imageIdOf()
