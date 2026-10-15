@@ -259,3 +259,5 @@ jobs:
       # the GHCR package as private. Flip it to public once — the package
       # page → Settings → Danger Zone → Change visibility — or every
       # `docker pull` of the public image will keep demanding a token.
+      # (Done for this repository on 2026-10-15; kept as the recipe for
+      # forks and re-bootstraps.)
