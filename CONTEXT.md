@@ -41,7 +41,7 @@ The proxy container shares Chrome's network namespace; the browser URL is localh
 _Avoid_: netns mode, same-network trick
 
 **Named-service topology**:
-The proxy and Chrome are separate services on one network; the browser URL names Chrome's service.
+The proxy and Chrome are separate services on one network; the browser URL names Chrome's service. That DNS-name URL cannot work (Chrome rejects any non-IP, non-localhost `Host` header); only the container-IP form does — advanced and fragile.
 _Avoid_: bridge topology
 
 **Host-network topology**:
