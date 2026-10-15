@@ -1,4 +1,5 @@
-# One workflow, three jobs (a fourth — release — arrives with its own ticket).
+# One workflow, four jobs: changed-path gating, hygiene, the test suite and
+# the release pipeline.
 #
 # No workflow-level `paths` filter: branch protection requires the Hygiene and
 # Test suite checks on every pull request, and a workflow skipped by path
@@ -15,8 +16,8 @@ on:
       - main
   workflow_dispatch:
 
-# Fork pull requests run with a read-only token and no secrets; the future
-# publish path is push-to-main only, which a fork can never produce. This
+# Fork pull requests run with a read-only token and no secrets; the publish
+# path is push-to-main only, which a fork can never produce. This
 # workflow must never use pull_request_target (base-repo permissions over
 # fork code). Third-party actions are pinned by commit SHA, never by a moving
 # tag.
@@ -35,11 +36,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      # `hygiene` gates the Hygiene job, `tests` the Test suite job. The
-      # tests gate paths are a subset of hygiene's, so a run with the tests
-      # gate true always has the hygiene gate true too.
+      # `hygiene` gates the Hygiene job, `tests` the Test suite job, `release`
+      # the Release job. The tests gate paths are a subset of hygiene's, so a
+      # run with the tests gate true always has the hygiene gate true too.
       hygiene: ${{ steps.filter.outputs.hygiene }}
       tests: ${{ steps.filter.outputs.tests }}
+      release: ${{ steps.filter.outputs.release }}
     steps:
       - name: Check out the repository (full history, for the range diff)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -62,6 +64,7 @@ jobs:
           if [[ "${GITHUB_EVENT_NAME}" == 'workflow_dispatch' ]]; then
             echo 'hygiene=true' >> "${GITHUB_OUTPUT}"
             echo 'tests=true' >> "${GITHUB_OUTPUT}"
+            echo 'release=true' >> "${GITHUB_OUTPUT}"
             exit 0
           fi
           if [[ "${GITHUB_EVENT_NAME}" == 'pull_request' ]]; then
@@ -75,10 +78,14 @@ jobs:
           # hygiene gate adds the repo-config group: the Husky hooks are
           # TypeScript inputs and every tool config shapes the gates
           # themselves, so a config-only pull request must not skip
-          # typecheck.
+          # typecheck. The release tooling joins the hygiene gate (not the
+          # tests gate) so a feat confined to it still runs ShellCheck and —
+          # because release needs hygiene — still publishes on merge instead
+          # of silently riding along with the next src change.
           code_paths=$(git diff --name-only "${range}" -- src tests .github/workflows/ci.yml package.json bun.lock)
           config_paths=$(git diff --name-only "${range}" -- .husky biome.json tsconfig.json .prettierrc .prettierignore .shellcheckrc .lintstagedrc.json)
-          if [[ -n "${code_paths}" || -n "${config_paths}" ]]; then
+          release_tooling_paths=$(git diff --name-only "${range}" -- release.config.js commitlint.config.js scripts/release-image.sh)
+          if [[ -n "${code_paths}" || -n "${config_paths}" || -n "${release_tooling_paths}" ]]; then
             echo 'hygiene=true' >> "${GITHUB_OUTPUT}"
           else
             echo 'hygiene=false' >> "${GITHUB_OUTPUT}"
@@ -87,6 +94,16 @@ jobs:
             echo 'tests=true' >> "${GITHUB_OUTPUT}"
           else
             echo 'tests=false' >> "${GITHUB_OUTPUT}"
+          fi
+          # The release gate covers the image inputs: src, this workflow,
+          # release.config.js and the image build script. package.json and
+          # bun.lock are deliberately out — no version is bumped there, they
+          # are not image inputs.
+          release_paths=$(git diff --name-only "${range}" -- src .github/workflows/ci.yml release.config.js scripts/release-image.sh)
+          if [[ -n "${release_paths}" ]]; then
+            echo 'release=true' >> "${GITHUB_OUTPUT}"
+          else
+            echo 'release=false' >> "${GITHUB_OUTPUT}"
           fi
 
   hygiene:
@@ -105,6 +122,15 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - name: Install dependencies
         run: bun install --frozen-lockfile
+      # Squash merges make the PR title the commit, and conventional commits
+      # drive semantic-release: a non-conventional title would silently
+      # release nothing on merge. Pushes and dispatches carry no title to
+      # check (the squash title was already gated at pull request time).
+      - name: Commitlint (PR title)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "${PR_TITLE}" | bunx commitlint
       # apt ships an older minor than the 0.10+ the README requires
       - name: Install ShellCheck
         run: |
@@ -174,3 +200,62 @@ jobs:
         if: steps.suite.outcome == 'failure'
         timeout-minutes: 12
         run: bun test
+
+  # The release pipeline (docs/adr/0001-conventional-commit-versioning-via-semantic-release.md):
+  # conventional commits drive semantic-release, which publishes the GHCR
+  # image (through scripts/release-image.sh in the exec plugin's prepare
+  # phase), then the git tag and the GitHub release — versions are never
+  # bumped by hand. It needs changes + hygiene but NOT test-suite: the suite
+  # gated the pull request, and a dispatched publish without the suite is a
+  # deliberate manual act by the owner. Like the tests gate, the release gate
+  # paths are a subset of hygiene's (src and this workflow through the code
+  # group, release.config.js and the build script through the release-tooling
+  # group), so a run with the release gate true always has the hygiene gate
+  # true too — a skipped need can never silently skip a release.
+  release:
+    name: Release
+    needs: [changes, hygiene]
+    # Repository identity guards against renamed forks pushing images and
+    # tags to their own registries; push-to-main or manual dispatch only —
+    # a pull request can never publish, so fork pull requests (read-only
+    # token) are structurally harmless.
+    if: github.repository == 'andrielson/chrome-devtools-mcp-proxy' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.changes.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    # Above the image build + push and semantic-release's own overhead.
+    timeout-minutes: 20
+    # contents: write pushes the git tag and opens the GitHub release;
+    # packages: write pushes the image to GHCR.
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      # Full history: semantic-release diffs the commit range back to the
+      # last publication record (the seed tag v0.1.0 anchors the series).
+      - name: Check out the repository (full history, for the release range)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # The default docker driver cannot export registry cache, which the
+      # release build's --cache-to relies on; a docker-container builder can.
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      # Zero project dependencies: semantic-release and the exec plugin run
+      # from pinned npx packages on the runner's Node — never under Bun,
+      # never from this repository's dependency tree. An unpinned plugin
+      # breaks a release as surely as an unpinned core, hence the exact
+      # versions. GITHUB_TOKEN carries the job's contents:write (tag push +
+      # GitHub release) and packages:write (image push, via the login above).
+      - name: semantic-release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npx --yes --package semantic-release@25.0.9 --package @semantic-release/exec@7.1.0 semantic-release
+      # ONE-TIME manual step after the first release: the push above created
+      # the GHCR package as private. Flip it to public once — the package
+      # page → Settings → Danger Zone → Change visibility — or every
+      # `docker pull` of the public image will keep demanding a token.
